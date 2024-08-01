@@ -69,12 +69,20 @@ const executeCode = (language, filepath, inputPath) => {
             throw new Error('Unsupported language');
     }
 
+    const errorRegexes = {
+        cpp: /\.cpp:(\d+:\d+: .*)/,
+        c: /\.c:(\d+:\d+: .*)/,
+        java: /Error: ([^\n\r]*)/,
+        py: /SyntaxError: ([^\r\n]*)/,
+        js: /codes\\24821276-3d92-4029-b6ec-1a19d64925e1\.js:\d+\r?\n([\s\S]*)/
+    };
+
     return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
-            if (error) {
-                reject(stderr || error.message);
-            } else if (stderr) {
-                reject(stderr);
+        exec(command, { timeout: 8000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+            if (error || stderr) {
+                const regex = errorRegexes[language];
+                const errorMessage = regex ? (stderr.match(regex) || [stderr])[0] : stderr || error.message;
+                reject(errorMessage);
             } else {
                 resolve(stdout);
             }
@@ -91,23 +99,24 @@ const executeAndCompare = async (language, code, testCases) => {
         try {
             const actualOutput = await executeCode(language, filePath, inputFilePath);
             const passed = actualOutput.trim() === testCase.expectedOutput.trim();
-            results.push({ language: language, input: testCase.input, expectedOutput: testCase.expectedOutput, actualOutput: actualOutput.trim(), passed });
+            results.push({ language: language, passed });
         } catch (error) {
-            results.push({ language: language, input: testCase.input, expectedOutput: testCase.expectedOutput, actualOutput: error.toString(), passed: false });
+            results.push({ language: language, passed: false });
         }
     }
 
     return results;
 };
-app.get("/",(req,res) => {
+
+app.get("/", (req, res) => {
     return res.status(200).json({
         success: true,
         message: "API is running"
     });
-})
-app.post('/execute', async (req, res) => {
-    const { language = 'cpp', code, testCases } = req.body;
+});
 
+app.post('/execute', async (req, res) => {
+    const { language = 'cpp', code, problemId } = req.body;
     if (!code) {
         return res.status(400).json({
             success: false,
@@ -132,8 +141,16 @@ app.post('/execute', async (req, res) => {
             });
         }
 
-        const results = await executeAndCompare(language, code, testCases);
+        const testCasesRawData = await fetch(`https://oj-sigma.vercel.app/api/getproblembyid/${problemId}`).then(res => res.json());
+        const data = testCasesRawData.data.testCases;
 
+        const transformedTestCases = data.map((testCase) => {
+            const input = testCase.input;
+            const expectedOutput = testCase.output;
+            return { input, expectedOutput };
+        });
+
+        const results = await executeAndCompare(language, code, transformedTestCases);
         return res.status(200).json({
             success: true,
             results,
