@@ -49,7 +49,6 @@ const generateInputFile = async (input) => {
 const executeCode = (language, filepath, inputPath) => {
     const jobId = path.basename(filepath).split('.')[0];
     const outPath = path.join(outputPath, jobId);
-
     let command = '';
     switch (language) {
         case 'cpp':
@@ -91,13 +90,14 @@ const executeCode = (language, filepath, inputPath) => {
 };
 
 const executeAndCompare = async (language, code, testCases) => {
+    // console.log(`Executing code for ${language}...`);
     const results = [];
     const filePath = await generateFile(language, code);
-
     for (const testCase of testCases) {
         const inputFilePath = await generateInputFile(testCase.input.replace(/,/g, '\n'));
         try {
             const actualOutput = await executeCode(language, filePath, inputFilePath);
+            // console.log("actualOutput",actualOutput);
             const passed = actualOutput.trim() === testCase.expectedOutput.trim();
             results.push({ language: language, passed });
         } catch (error) {
@@ -144,13 +144,15 @@ app.post('/execute', async (req, res) => {
         const testCasesRawData = await fetch(`https://oj-sigma.vercel.app/api/getproblembyid/${problemId}`).then(res => res.json());
         const data = testCasesRawData.data.testCases;
 
+        // console.log("data",data  );
         const transformedTestCases = data.map((testCase) => {
             const input = testCase.input;
             const expectedOutput = testCase.output;
             return { input, expectedOutput };
         });
-
+        // console.log("transformedTestCases",transformedTestCases);
         const results = await executeAndCompare(language, code, transformedTestCases);
+        // console.log("results", results);
         return res.status(200).json({
             success: true,
             results,
